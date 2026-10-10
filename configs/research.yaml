@@ -1,0 +1,11 @@
+research:
+  default_forward_periods:
+    - 1
+    - 2
+    - 3
+    - 5
+    - 10
+    - 15
+    - 30
+    - 60
+    - 180

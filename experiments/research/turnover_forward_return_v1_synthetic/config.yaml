@@ -1,0 +1,31 @@
+name: turnover_forward_return_v1_synthetic
+variable:
+  name: turnover_rate
+  unit: ratio
+  thresholds:
+  - 0.1
+  - 0.3
+  - 0.5
+  - 0.7
+  - 0.9
+forward_periods:
+- 1
+- 2
+- 3
+- 5
+- 10
+- 20
+event_mode: daily
+return:
+  entry: close
+  exit: close
+  type: price_return
+  dividend: excluded
+date_range:
+  start: null
+  end: null
+universe:
+  mode: observed_price_universe
+price:
+  adjusted: true
+exploratory: true

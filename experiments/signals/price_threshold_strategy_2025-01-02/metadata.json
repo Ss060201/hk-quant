@@ -1,0 +1,13 @@
+{
+  "strategy_id": "price_threshold_strategy",
+  "strategy_version": "1.0.0",
+  "strategy_hash": "e0b31b8996956d976214a0aaaf6bf443bb46f177400ba6fd6d35667b98a1d8fd",
+  "signal_date": "2025-01-02",
+  "data_version": "HK_DAILY_2026_09_24",
+  "factor_versions": {},
+  "universe": null,
+  "warnings": [
+    "historical listing/delisting data unavailable; universe may contain survivorship bias"
+  ],
+  "count": 1
+}

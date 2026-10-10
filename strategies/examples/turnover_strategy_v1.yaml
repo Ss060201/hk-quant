@@ -1,0 +1,37 @@
+# Example strategy schema (turnover_rate).
+#
+# NOTE: the current provider does not supply turnover_rate (換手率); it only
+# supplies trading amount (成交額). Validating this strategy against the
+# current DataRepository will therefore raise StrategyValidationError —
+# it must NOT silently use `amount` as turnover_rate.
+id: turnover_strategy
+name: Turnover Forward Return Strategy
+version: 1.0.0
+description: >-
+  Entry when turnover_rate exceeds 40%, hold for 30 trading days.
+  Schema demonstration only: turnover_rate is not yet available from the
+  current data provider.
+
+research:
+  research_id: turnover_forward_return_v1
+  source_status: WORTH_FURTHER_RESEARCH
+
+universe:
+  type: observed_price_universe
+
+entry:
+  all:
+    - source: data
+      field: turnover_rate
+      operator: ">"
+      value: 0.40
+      unit: ratio
+
+holding_period:
+  type: trading_days
+  value: 30
+
+exit:
+  type: holding_period
+
+status: draft

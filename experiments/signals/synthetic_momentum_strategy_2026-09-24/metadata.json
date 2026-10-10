@@ -1,0 +1,15 @@
+{
+  "strategy_id": "synthetic_momentum_strategy",
+  "strategy_version": "1.0.0",
+  "strategy_hash": "cbdaa8d15bfe14f9700282ee4053c567b1ad01c3eb8284a69e52558da09b9622",
+  "signal_date": "2026-09-24",
+  "data_version": "HK_DAILY_2026_09_24",
+  "factor_versions": {
+    "momentum_20": "1.0.0"
+  },
+  "universe": null,
+  "warnings": [
+    "historical listing/delisting data unavailable; universe may contain survivorship bias"
+  ],
+  "count": 4
+}

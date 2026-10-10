@@ -1,0 +1,3 @@
+paper:
+  # Phase 8: Paper trading configuration (basic placeholder).
+  enabled: false

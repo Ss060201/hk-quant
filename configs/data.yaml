@@ -1,0 +1,14 @@
+market:
+  name: HK
+  timezone: Asia/Hong_Kong
+
+provider:
+  primary: akshare
+
+storage:
+  raw_dir: data/raw
+  processed_dir: data/processed
+  reference_dir: data/reference
+
+ingestion:
+  overwrite: false

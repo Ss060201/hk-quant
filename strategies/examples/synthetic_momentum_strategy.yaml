@@ -1,0 +1,33 @@
+# Synthetic momentum strategy using the momentum_20 factor.
+#
+# Demonstrates the full Strategy -> Factor -> Signal chain. Not a validated
+# trading rule.
+id: synthetic_momentum_strategy
+name: Synthetic Momentum Factor Strategy
+version: 1.0.0
+description: >-
+  Synthetic schema demonstration using the momentum_20 factor (factor registry).
+
+research:
+  research_id: turnover_forward_return_v1_synthetic
+  source_status: NOTABLE_PATTERN
+
+universe:
+  type: observed_price_universe
+
+entry:
+  all:
+    - source: factor
+      field: momentum_20
+      operator: ">"
+      value: 0.05
+      unit: ratio
+
+holding_period:
+  type: trading_days
+  value: 5
+
+exit:
+  type: holding_period
+
+status: validated

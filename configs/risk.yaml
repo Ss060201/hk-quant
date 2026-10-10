@@ -1,0 +1,4 @@
+risk:
+  # Phase 6: Risk research configuration (basic placeholder).
+  max_position_weight: 0.1
+  max_drawdown_limit: 0.2

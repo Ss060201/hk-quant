@@ -1,0 +1,28 @@
+# Real-data strategy example using a field that exists today (close).
+# Only exists to prove DataRepository -> Strategy -> Signal works on real data;
+# it is NOT a researched/validated investment strategy.
+id: price_threshold_strategy
+name: Price Threshold Signal Demo
+version: 1.0.0
+description: >-
+  Signal Engine real-data demo: entry when close > 500, hold 5 trading days.
+
+universe:
+  type: observed_price_universe
+
+entry:
+  all:
+    - source: data
+      field: close
+      operator: ">"
+      value: 400
+      unit: currency
+
+holding_period:
+  type: trading_days
+  value: 5
+
+exit:
+  type: holding_period
+
+status: validated

@@ -1,0 +1,34 @@
+id: synthetic_momentum_strategy
+name: Synthetic Momentum Schema Example
+version: 1.0.0
+description: Synthetic schema demonstration using raw data fields (close/volume).
+  Not a validated trading rule.
+research:
+  research_id: turnover_forward_return_v1_synthetic
+  source_status: NOTABLE_PATTERN
+  research_result_path: null
+universe:
+  type: observed_price_universe
+entry:
+  all:
+  - source: data
+    field: close
+    operator: '>'
+    value: 0.0
+    unit: hkd
+  - source: data
+    field: volume
+    operator: '>'
+    value: 1000000.0
+    unit: shares
+exit:
+  type: holding_period
+holding_period:
+  type: trading_days
+  value: 20
+signal_frequency: daily
+price:
+  adjusted: true
+status: DRAFT
+created_at: '2026-09-23T19:38:57.628665+00:00'
+strategy_hash: ba96fd5d6639aeccef119151b21b21c10757ad2679e6b1e11b7e7890be5de87a
