@@ -29,6 +29,21 @@ def test_daily_prices_filter(tmp_path, prices_df) -> None:
     assert feb.loc[0, "trade_date"] == pd.Timestamp("2025-02-03")
 
 
+def test_daily_prices_preserve_previous_same_month_and_replace_overlapping_day(tmp_path, prices_df) -> None:
+    storage = DataStorage(tmp_path / "raw", tmp_path / "processed")
+    storage.save_daily_prices(prices_df.iloc[[0]])
+    storage.save_daily_prices(prices_df.iloc[[1]])
+    assert storage.load_daily_prices()["trade_date"].tolist() == [
+        pd.Timestamp("2025-01-02"), pd.Timestamp("2025-01-03")
+    ]
+    amended = prices_df.iloc[[0]].copy()
+    amended["close"] = 434.0
+    storage.save_daily_prices(amended)
+    loaded = storage.load_daily_prices()
+    assert len(loaded) == 2
+    assert loaded["close"].tolist() == [434.0, 433.0]
+
+
 def test_stock_master_round_trip(tmp_path, master_df) -> None:
     storage = DataStorage(tmp_path / "raw", tmp_path / "processed")
     storage.save_stock_master(master_df)

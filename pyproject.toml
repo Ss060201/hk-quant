@@ -22,6 +22,12 @@ dependencies = [
 dev = [
     "pytest>=8.0",
 ]
+ml = [
+    "scikit-learn>=1.4",
+]
+paper = [
+    "futu-api",
+]
 
 [project.scripts]
 hk-quant = "hk_quant.cli:main"

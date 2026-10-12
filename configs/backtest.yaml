@@ -1,4 +1,8 @@
 backtest:
-  # Phase 3: Backtest configuration (basic placeholder).
+  # General application config. The executable example reads
+  # configs/backtest/price_demo.yaml (same assumptions, without this wrapper).
   initial_capital: 1000000
-  benchmark: HSI
+  commission_rate: 0.001
+  slippage_rate: 0.001
+  risk_free_rate: 0.0
+  annual_trading_days: 252

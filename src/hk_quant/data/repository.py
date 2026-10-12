@@ -20,9 +20,19 @@ from hk_quant.data import models
 from hk_quant.data.adjustments import adjust_prices
 from hk_quant.data.calendar import TradingCalendar
 from hk_quant.data.point_in_time import get_fundamentals_as_of
+from hk_quant.data.provenance import get_data_version
 from hk_quant.data.universe import get_universe
 
 PathLike = Union[str, os.PathLike[str]]
+
+
+def _parquet_path_literal(path: Path) -> str:
+    """Quote a filesystem path as an SQL string, including embedded apostrophes.
+
+    ``read_parquet`` needs a constant path when binding the file's schema;
+    user supplied stock IDs and dates remain separately parameterized.
+    """
+    return "'" + path.as_posix().replace("'", "''") + "'"
 
 
 class DataRepository:
@@ -44,24 +54,28 @@ class DataRepository:
         if not base.exists() or not any(base.rglob("*.parquet")):
             return pd.DataFrame(columns=list(models.DAILY_PRICE_COLUMNS))
 
-        glob_path = (base / "**" / "*.parquet").as_posix()
-        sql = f"SELECT * FROM read_parquet('{glob_path}')"
+        glob_path = base / "**" / "*.parquet"
+        sql = f"SELECT * FROM read_parquet({_parquet_path_literal(glob_path)})"
+        params: list[object] = []
 
         conditions: list[str] = []
         if stock_ids:
-            ids = ", ".join(f"'{s}'" for s in stock_ids)
-            conditions.append(f"stock_id IN ({ids})")
+            ids = list(dict.fromkeys(stock_ids))
+            conditions.append(f"stock_id IN ({', '.join('?' for _ in ids)})")
+            params.extend(ids)
         if start_date is not None:
-            conditions.append(f"trade_date >= DATE '{start_date}'")
+            conditions.append("trade_date >= CAST(? AS DATE)")
+            params.append(start_date)
         if end_date is not None:
-            conditions.append(f"trade_date <= DATE '{end_date}'")
+            conditions.append("trade_date <= CAST(? AS DATE)")
+            params.append(end_date)
         if conditions:
             sql += " WHERE " + " AND ".join(conditions)
         sql += " ORDER BY stock_id, trade_date"
 
         con = duckdb.connect()
         try:
-            return con.execute(sql).df()
+            return con.execute(sql, params).df()
         finally:
             con.close()
 
@@ -72,19 +86,46 @@ class DataRepository:
         end_date: str | None = None,
         *,
         adjusted: bool = False,
+        as_of_date: object | None = None,
     ) -> pd.DataFrame:
         """Query daily prices, returning RAW or ADJUSTED research prices.
 
         ``adjusted=False`` returns raw provider prices. ``adjusted=True``
-        applies the in-house split/bonus adjustment (see
-        ``hk_quant.data.adjustments``). Dividends are never folded into
-        prices; they stay as ``cash_amount`` on corporate actions.
+        uses only split/bonus actions effective and announced as of the
+        selected date: ``as_of_date`` if given, otherwise ``end_date`` (or
+        the last returned trade date). Call with end_date=T for a T signal.
+        A full retrospectively adjusted historical panel can still encode
+        future information in its early rows; backtests must calculate each
+        historical signal with its own T cutoff. Dividends stay separate.
         """
-        raw = self.get_daily_prices(stock_ids, start_date, end_date)
-        if not adjusted:
+        effective_end = end_date
+        if as_of_date is not None:
+            as_of = pd.Timestamp(as_of_date)
+            if pd.isna(as_of):
+                raise ValueError("invalid as_of_date")
+            cutoff_date = as_of.date()
+            if end_date is not None and pd.Timestamp(end_date).date() > cutoff_date:
+                raise ValueError("end_date must not exceed as_of_date")
+            effective_end = end_date if end_date is not None else cutoff_date.isoformat()
+        raw = self.get_daily_prices(stock_ids, start_date, effective_end)
+        if not adjusted or raw.empty:
             return raw
+        cutoff = pd.Timestamp(as_of_date if as_of_date is not None else
+                              end_date if end_date is not None else raw["trade_date"].max())
+        if pd.isna(cutoff):
+            raise ValueError("invalid as_of_date")
         actions = self.get_corporate_actions(stock_ids=stock_ids)
-        return adjust_prices(raw, actions)
+        return adjust_prices(raw, actions, as_of_date=cutoff)
+
+    def get_data_version(self) -> str:
+        """Return the verified content fingerprint for current processed data."""
+        return get_data_version(self.processed_root)
+
+    def get_data_coverage(self) -> dict:
+        """Report observed coverage and explicit current provider limitations."""
+        from hk_quant.data.coverage import report_data_coverage
+
+        return report_data_coverage(self)
 
     def get_stock_master(self) -> pd.DataFrame:
         """Return the full canonical stock master table."""
@@ -94,7 +135,7 @@ class DataRepository:
 
         con = duckdb.connect()
         try:
-            sql = f"SELECT * FROM read_parquet('{path.as_posix()}') ORDER BY stock_id"
+            sql = f"SELECT * FROM read_parquet({_parquet_path_literal(path)}) ORDER BY stock_id"
             return con.execute(sql).df()
         finally:
             con.close()

@@ -105,3 +105,26 @@ def test_bonus_adjusts_by_share_factor() -> None:
     adjusted = adjust_prices(_prices(), bonus)
     assert adjusted.loc[1, "close"] == pytest.approx(102.0 / 1.1)
     assert adjusted.loc[2, "close"] == pytest.approx(50.0)
+
+
+def test_as_of_prices_ignore_future_or_undated_corporate_actions() -> None:
+    prices = _prices()
+    actions = pd.concat([
+        _split(),
+        _split().assign(event_date=pd.Timestamp("2020-10-01"), announcement_date=pd.Timestamp("2020-09-15")),
+        _split().assign(event_date=pd.Timestamp("2020-08-31"), announcement_date=pd.NaT),
+    ], ignore_index=True)
+    before = adjust_prices(prices, actions, as_of_date="2020-08-31")
+    assert before.loc[0, "close"] == pytest.approx(100.0)
+    assert before.loc[1, "close"] == pytest.approx(102.0)
+    after = adjust_prices(prices, actions, as_of_date="2020-09-02")
+    assert after.loc[1, "close"] == pytest.approx(51.0)
+    assert after.loc[2, "close"] == pytest.approx(50.0)
+
+
+def test_late_announced_action_does_not_rewrite_earlier_view() -> None:
+    late = _split().assign(announcement_date=pd.Timestamp("2020-09-02"))
+    before_announcement = adjust_prices(_prices(), late, as_of_date="2020-09-01")
+    after_announcement = adjust_prices(_prices(), late, as_of_date="2020-09-02")
+    assert before_announcement.loc[1, "close"] == 102.0
+    assert after_announcement.loc[1, "close"] == 51.0

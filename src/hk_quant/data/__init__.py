@@ -24,11 +24,17 @@ from hk_quant.data.point_in_time import get_available_as_of, get_fundamentals_as
 from hk_quant.data.universe import UniverseDataUnavailableError, get_universe
 from hk_quant.data.provenance import (
     DataProvenance,
+    build_data_manifest,
     build_provenance,
+    get_data_version,
     make_data_version,
+    read_data_manifest,
     read_provenance,
+    update_data_manifest,
+    write_data_manifest,
     write_provenance,
 )
+from hk_quant.data.coverage import report_data_coverage, write_coverage_report
 from hk_quant.data.storage import DataStorage
 from hk_quant.data.repository import DataRepository
 
@@ -50,14 +56,21 @@ __all__ = [
     "TradingCalendar",
     "UniverseDataUnavailableError",
     "adjust_prices",
+    "build_data_manifest",
     "build_provenance",
     "canonicalize_corporate_actions",
     "empty_corporate_actions",
     "get_available_as_of",
+    "get_data_version",
     "get_fundamentals_as_of",
     "get_universe",
     "make_data_version",
     "normalize_stock_id",
+    "read_data_manifest",
     "read_provenance",
+    "report_data_coverage",
+    "update_data_manifest",
+    "write_coverage_report",
+    "write_data_manifest",
     "write_provenance",
 ]

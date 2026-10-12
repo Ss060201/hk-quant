@@ -101,8 +101,8 @@ def ingest_daily_prices(
 ) -> pd.DataFrame:
     """Download, validate and persist daily prices for the given stocks/range.
 
-    Existing raw downloads for the exact ``(stock_id, start, end)`` range are
-    skipped unless ``overwrite=True``.
+    Completed processed ranges are skipped unless ``overwrite=True``. A raw
+    response left by a failed normalization/write is reused on the next run.
     """
     if provider is None or storage is None:
         default_provider, default_storage = _defaults(config_path)
@@ -112,25 +112,40 @@ def ingest_daily_prices(
     run_date = _run_date()
     frames: list[pd.DataFrame] = []
     for stock_id in stock_ids:
-        if not overwrite and storage.raw_daily_prices_exists(
+        if not overwrite and storage.daily_prices_completed(
             provider.name, stock_id, start_date, end_date
         ):
             logger.info("skip %s (%s..%s): already ingested", stock_id, start_date, end_date)
             continue
 
-        raw = provider.fetch_raw_daily_prices([stock_id], start_date, end_date)
+        raw_path = None if overwrite else storage.find_raw_daily_prices(
+            provider.name, stock_id, start_date, end_date
+        )
+        if raw_path is not None:
+            try:
+                raw = pd.read_parquet(raw_path)
+            except (OSError, ValueError):
+                logger.warning("unreadable saved raw prices %s; refetching", raw_path)
+                raw_path = None
+        if raw_path is None:
+            raw = provider.fetch_raw_daily_prices([stock_id], start_date, end_date)
         if raw.empty:
             logger.warning("no data for %s (%s..%s)", stock_id, start_date, end_date)
             continue
 
-        raw_path = storage.save_raw_daily_prices(
-            raw, provider.name, run_date, stock_id, start_date, end_date
-        )
-        logger.info("saved raw daily prices: %s", raw_path)
+        if raw_path is None:
+            raw_path = storage.save_raw_daily_prices(
+                raw, provider.name, run_date, stock_id, start_date, end_date
+            )
+            logger.info("saved raw daily prices: %s", raw_path)
 
         canonical = provider.normalize_daily_prices(raw, stock_id)
         canonical = validate_daily_prices(canonical)
         storage.save_daily_prices(canonical)
+        storage.mark_daily_prices_complete(
+            provider.name, stock_id, start_date, end_date,
+            raw_path=raw_path, canonical=canonical,
+        )
         logger.info("saved processed daily prices for %s (rows=%d)", stock_id, len(canonical))
         frames.append(canonical)
 

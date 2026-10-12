@@ -88,11 +88,13 @@ Natural Language Research Question
 - Missing data / out-of-universe 明確處理（不默認 False）
 - Batch signal 保存（parquet + metadata.json，可重現）
 
-**尚未實作**：Portfolio Construction、Position Sizing、Backtest、
+**Phase 1–6 當時尚未實作**：Portfolio Construction、Position Sizing、Backtest、
 Risk Model、Transaction Cost、ML、News/Filing、Paper Trading、
 Broker API、Dashboard、Signal Ranking；以及完整的 PIT fundamentals
 provider、官方港股交易日曆、split/rights 的 provider 資料、
 turnover rate 的 provider 資料。
+
+上段記錄最初 Phase 1–6 的基線；Phase 7–20 的最新狀態見本文件末尾的狀態表。
 
 ## 4. 如何安裝
 
@@ -106,8 +108,8 @@ python -m venv .venv
 # macOS / Linux
 source .venv/bin/activate
 
-# 安裝專案（含開發依賴 pytest）
-pip install -e ".[dev]"
+# 安裝專案（含開發依賴 pytest；ML 需要額外依賴）
+pip install -e ".[dev,ml]"
 ```
 
 ## 5. 如何執行
@@ -131,7 +133,10 @@ Status: OK
 
 ```bash
 # 一般 unit tests（不訪問外部 API）
-pytest
+python -m pytest
+
+# 不依賴 DuckDB / PyArrow 的邊界測試
+PYTHONPATH=src python -m unittest discover -s tests/unit_stdlib -v
 
 # 真正訪問 AKShare 的 integration tests
 pytest -m integration
@@ -343,7 +348,8 @@ repo.get_corporate_actions(stock_ids=["0700"])
 
 # Raw vs Adjusted price
 raw = repo.get_prices(stock_ids=["0700"], adjusted=False)
-adj = repo.get_prices(stock_ids=["0700"], adjusted=True)
+adj = repo.get_prices(stock_ids=["0700"], end_date="2022-05-10",
+                      adjusted=True, as_of_date="2022-05-10")
 ```
 
 ## 已知資料來源限制（Phase 3）
@@ -419,9 +425,9 @@ Strategy 狀態：`DRAFT → VALIDATED → ACTIVE → RETIRED`（本階段只建
 | 項目 | 現狀 | 說明 |
 |---|---|---|
 | turnover_rate field | ❌ 不可用 | Validator 會 raise `StrategyValidationError`，不拿 amount 冒充 |
-| factor（如 momentum_20） | ❌ 未建立 registry | `source: factor` 目前一律明確報錯 |
+| factor（如 momentum_20） | ✅ Phase 6 已建立 registry | 可用 `momentum_20`、`volatility_20`；舊策略示例仍需按當前資料覆蓋檢查 |
 | historical_universe | ❌ 不可用 | 若 DataRepository 無法提供會 raise `StrategyValidationError` |
-| Signal 產生 | ❌ 未實作 | Strategy 是規則，Signal 是規則套到某天的結果（下一階段） |
+| Signal 產生 | ✅ Phase 6 已實作 | Strategy 是規則，Signal 是規則套到某天的結果 |
 
 ## Phase 6 使用範例
 
@@ -467,5 +473,35 @@ python examples/run_signals.py \
 | historical_universe | ❌ 不可用 | 缺 listing/delisting date，不 fallback 到 observed universe |
 | factor registry | ⚠️ 只有 2 個 | `momentum_20`、`volatility_20`（未 annualize，明確標示） |
 | Signal 只輸出 BUY/SELL/HOLD | ✅ | 不排序、不加權、不交易、不產生 Order |
-| Execution timing | ❌ 未實作 | Signal 不等於成交；slippage/commission/fill 留給 Backtest |
-| Backtest / 排序 / weights | ❌ 未實作 | 不提前接入 |
+| Execution timing | ✅ Phase 7 的合成回測 | Signal 不等於成交；假設下一交易日開盤成交，並記錄成本和拒單 |
+| Backtest / weights | ⚠️ 已提供基礎實作 | 尚需依賴齊備的全套測試與真實資料驗證；研究結果不可視為已驗證收益 |
+
+## Phase 7–20 目前狀態
+
+以下「合成通過」表示離線程式碼及合成案例存在，**不表示**真實港股資料、券商帳戶或生產連線已驗證。
+
+| Phase | 功能 | 現況與可驗證範圍 |
+| --- | --- | --- |
+| 7 | 組合與回測 | 基礎引擎、成本、T+1 執行及合成案例已實作；真實數據效果未驗證 |
+| 8 | 資料覆蓋 | 內容 hash、完整度報告、寫入恢復及 PIT 修正已實作；歷史股票池、官方日曆、換手率仍缺來源 |
+| 9 | 實驗登記 | SQLite 唯一 ID、不可覆蓋產物及來源版本已實作 |
+| 10–11 | 固定策略驗證、多變量研究 | 合成 OOS、walk-forward、purge、比較基準和多變量分析已實作；未作真實資料確認 |
+| 12 | 風險 | 歷史風險及回測介接已完成合成測試；缺足夠已驗證的市場資料 |
+| 13 | 條件失敗模型 | 固定標籤、purged 評估及基準已實作；獨立、扣成本後的模型增益比較 **BLOCKED** |
+| 14–15 | 文件研究、條件式協調 | 有來源版本、時間界線、證據與限額的合成管線已實作；具授權的正式文件來源 **BLOCKED** |
+| 16–17 | 外部模擬帳戶、監控 | Futu 港股 PAPER adapter 與假帳戶測試已實作；真實 OpenD / PAPER 帳戶讀取及訂單 **BLOCKED** |
+| 18–19 | 研究工具與自然語言規劃 | 有限的 Python JSON 工具、Pi extension、保守問句解析已實作；Pi CLI 真正載入 **未驗證** |
+| 20 | 報告與介面 | 靜態唯讀 HTML 索引與研究報告輸出已實作；即時互動介面及正式環境驗證 **未完成** |
+
+### 先跑可驗證的路徑
+
+```bash
+python examples/run_backtest.py          # 合成資料，不代表市場收益
+python examples/run_validation.py        # 合成資料，保留 final test
+python examples/run_multivariable.py     # 合成研究
+PYTHONPATH=src python -m unittest discover -s tests/unit_stdlib -v
+python -m pytest -q -m 'not integration' tests
+python -m pytest -q tests/integration/test_end_to_end_backtest.py
+```
+
+詳細接入順序、資料權限、Paper 安全檢查、驗收與已知缺口見[執行指南](docs/implementation-guide.md)，資料契約見[資料就緒說明](docs/data-readiness.md)，風險與模型限制見[風險/ML 說明](docs/risk_ml.md)。

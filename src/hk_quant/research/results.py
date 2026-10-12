@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 from pathlib import Path
 from typing import Any, Union
@@ -23,8 +24,8 @@ def _jsonable(value: Any) -> Any:
     if isinstance(value, pd.Timestamp):
         return value.isoformat()
     if hasattr(value, "item"):
-        return value.item()
-    if isinstance(value, float) and pd.isna(value):
+        return _jsonable(value.item())
+    if isinstance(value, float) and not math.isfinite(value):
         return None
     return value
 
@@ -69,7 +70,7 @@ def save_research_result(
 
     summary_path = root / "summary.json"
     summary_path.write_text(
-        json.dumps(build_summary(result), indent=2, ensure_ascii=False),
+        json.dumps(build_summary(result), indent=2, ensure_ascii=False, allow_nan=False),
         encoding="utf-8",
     )
 

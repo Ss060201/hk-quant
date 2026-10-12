@@ -28,6 +28,21 @@ data/reference/*
 !data/processed/.gitkeep
 !data/reference/.gitkeep
 
+# Local research state and paper account responses
+data/news/
+data/paper/
+experiments/registry.sqlite3
+experiments/artifacts/
+reports/generated/
+.env
+.env.*
+!.env.example
+
+# Locally generated experiment run snapshots
+experiments/backtest-*/
+experiments/backtests/
+experiments/validation_synthetic/
+
 # OS
 .DS_Store
 Thumbs.db

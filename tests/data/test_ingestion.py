@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pandas as pd
+import pytest
 
 from hk_quant.data.ingestion import ingest_daily_prices, ingest_stock_master
 from hk_quant.data.normalization import (
@@ -93,3 +94,75 @@ def test_ingest_skips_existing_raw(tmp_path) -> None:
         end_date="2025-01-31",
     )
     assert second.empty  # already ingested -> skipped
+
+
+def test_raw_saved_before_normalize_failure_is_recovered_without_refetch(tmp_path) -> None:
+    class FlakyProvider(FakeProvider):
+        calls = 0
+        fail = True
+
+        def fetch_raw_daily_prices(self, stock_ids, start_date=None, end_date=None):
+            self.calls += 1
+            return super().fetch_raw_daily_prices(stock_ids, start_date, end_date)
+
+        def normalize_daily_prices(self, raw, stock_id):
+            if self.fail:
+                raise ValueError("synthetic normalization failure")
+            return super().normalize_daily_prices(raw, stock_id)
+
+    provider = FlakyProvider()
+    storage = DataStorage(tmp_path / "raw", tmp_path / "processed")
+    args = {"stock_ids": ["0700"], "start_date": "2025-01-01", "end_date": "2025-01-31"}
+    with pytest.raises(ValueError, match="normalization failure"):
+        ingest_daily_prices(provider, storage, **args)
+    assert storage.raw_daily_prices_exists("fake", "0700", "2025-01-01", "2025-01-31")
+    assert not storage.daily_prices_completed("fake", "0700", "2025-01-01", "2025-01-31")
+
+    provider.fail = False
+    assert len(ingest_daily_prices(provider, storage, **args)) == 2
+    assert provider.calls == 1
+    assert storage.daily_prices_completed("fake", "0700", "2025-01-01", "2025-01-31")
+
+
+def test_processed_failure_after_partial_save_retries_from_raw(tmp_path, monkeypatch) -> None:
+    class CountingProvider(FakeProvider):
+        calls = 0
+
+        def fetch_raw_daily_prices(self, stock_ids, start_date=None, end_date=None):
+            self.calls += 1
+            return super().fetch_raw_daily_prices(stock_ids, start_date, end_date)
+
+    provider = CountingProvider()
+    storage = DataStorage(tmp_path / "raw", tmp_path / "processed")
+    original = storage.save_daily_prices
+
+    def fail_after_write(frame):
+        original(frame)
+        raise RuntimeError("synthetic disk failure after processed write")
+
+    monkeypatch.setattr(storage, "save_daily_prices", fail_after_write)
+    args = {"stock_ids": ["0700"], "start_date": "2025-01-01", "end_date": "2025-01-31"}
+    with pytest.raises(RuntimeError, match="disk failure"):
+        ingest_daily_prices(provider, storage, **args)
+    assert not storage.daily_prices_completed("fake", "0700", "2025-01-01", "2025-01-31")
+    monkeypatch.setattr(storage, "save_daily_prices", original)
+    assert len(ingest_daily_prices(provider, storage, **args)) == 2
+    assert provider.calls == 1
+    assert len(storage.load_daily_prices()) == 2
+    assert storage.daily_prices_completed("fake", "0700", "2025-01-01", "2025-01-31")
+    assert ingest_daily_prices(provider, storage, **args).empty
+
+    # An incomplete processed partition invalidates the completion record.
+    (storage.processed_root / "daily_prices" / "0700" / "2025" / "01" / "data.parquet").unlink()
+    assert not storage.daily_prices_completed("fake", "0700", "2025-01-01", "2025-01-31")
+    assert len(ingest_daily_prices(provider, storage, **args)) == 2
+    assert provider.calls == 1
+
+
+def test_provider_symbol_completion_uses_canonical_stock_partition(tmp_path) -> None:
+    provider = FakeProvider()
+    storage = DataStorage(tmp_path / "raw", tmp_path / "processed")
+    args = {"stock_ids": ["00700"], "start_date": "2025-01-01", "end_date": "2025-01-31"}
+    assert len(ingest_daily_prices(provider, storage, **args)) == 2
+    assert storage.daily_prices_completed("fake", "00700", "2025-01-01", "2025-01-31")
+    assert ingest_daily_prices(provider, storage, **args).empty

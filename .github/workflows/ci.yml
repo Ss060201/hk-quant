@@ -1,0 +1,22 @@
+name: Offline tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  offline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install package and offline test dependencies
+        run: python -m pip install -e '.[dev,ml]'
+      - name: Compile package and examples
+        run: python -m compileall -q src tests examples
+      - name: Offline tests and synthetic integration
+        run: python -m pytest -q -m 'not integration' tests && python -m pytest -q -m integration tests/integration/test_end_to_end_backtest.py
