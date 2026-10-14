@@ -196,8 +196,12 @@ def ingest_corporate_actions(
     existing = storage.load_corporate_actions()
     if not existing.empty:
         combined = pd.concat([existing, combined], ignore_index=True)
+        # Two distinct distributions can share the same (stock, event date,
+        # action type, announcement date) with different cash/factor, so the
+        # economic terms are part of the identity key.
         combined = combined.drop_duplicates(
-            subset=["stock_id", "event_date", "action_type", "announcement_date"],
+            subset=["stock_id", "event_date", "action_type", "announcement_date",
+                    "cash_amount", "factor"],
             keep="last",
         )
 

@@ -87,6 +87,14 @@ def report_data_coverage(repository: Any) -> dict[str, Any]:
         limitations.append("No corporate actions are available; split-adjusted price history cannot be verified.")
     else:
         limitations.append("Recorded corporate actions do not prove complete split, bonus or rights coverage.")
+    if not actions.empty and "announcement_date" in actions and "event_date" in actions:
+        announced = pd.to_datetime(actions["announcement_date"], errors="coerce")
+        effective = pd.to_datetime(actions["event_date"], errors="coerce")
+        if (announced.notna() & effective.notna() & (announced > effective)).any():
+            limitations.append(
+                "Some corporate actions have announcement_date after event_date; "
+                "those announcement dates are not verified point-in-time dates."
+            )
     if fundamentals.empty:
         limitations.append("Point-in-time fundamentals are unavailable.")
     return result

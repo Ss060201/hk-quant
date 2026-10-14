@@ -5,7 +5,15 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from hk_quant.data.ingestion import ingest_daily_prices, ingest_stock_master
+from hk_quant.data.corporate_actions import (
+    canonicalize_corporate_actions,
+    parse_dividend_scheme,
+)
+from hk_quant.data.ingestion import (
+    ingest_corporate_actions,
+    ingest_daily_prices,
+    ingest_stock_master,
+)
 from hk_quant.data.normalization import (
     canonicalize_daily_prices,
     canonicalize_stock_master,
@@ -166,3 +174,47 @@ def test_provider_symbol_completion_uses_canonical_stock_partition(tmp_path) -> 
     assert len(ingest_daily_prices(provider, storage, **args)) == 2
     assert storage.daily_prices_completed("fake", "00700", "2025-01-01", "2025-01-31")
     assert ingest_daily_prices(provider, storage, **args).empty
+
+
+def test_ingest_corporate_actions_preserves_same_day_distributions(tmp_path) -> None:
+    class CorporateProvider:
+        name = "fake"
+
+        def fetch_raw_corporate_actions(self, stock_id: str) -> pd.DataFrame:
+            return pd.DataFrame(
+                {
+                    "最新公告日期": ["2009-05-14", "2009-05-14"],
+                    "除净日": ["2009-05-06", "2009-05-06"],
+                    "分红方案": ["每股派港币0.25元", "每股派港币0.10元"],
+                    "symbol": ["00700", "00700"],
+                }
+            )
+
+        def normalize_corporate_actions(self, raw: pd.DataFrame) -> pd.DataFrame:
+            rows = []
+            for _, record in raw.iterrows():
+                action_type, cash_amount, factor = parse_dividend_scheme(record["分红方案"])
+                rows.append(
+                    {
+                        "stock_id": record["symbol"],
+                        "event_date": record["除净日"],
+                        "announcement_date": record["最新公告日期"],
+                        "action_type": action_type,
+                        "factor": factor,
+                        "cash_amount": cash_amount,
+                    }
+                )
+            return canonicalize_corporate_actions(pd.DataFrame(rows), self.name)
+
+    provider = CorporateProvider()
+    storage = DataStorage(tmp_path / "raw", tmp_path / "processed")
+
+    first = ingest_corporate_actions(provider, storage, stock_ids=["0700"])
+    assert len(first) == 2
+
+    # Re-ingest merges with existing data; both same-day distributions survive.
+    second = ingest_corporate_actions(provider, storage, stock_ids=["0700"])
+    assert len(second) == 2
+    loaded = storage.load_corporate_actions()
+    assert len(loaded) == 2
+    assert sorted(loaded["cash_amount"].tolist()) == [0.1, 0.25]
