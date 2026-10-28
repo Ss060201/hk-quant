@@ -103,10 +103,12 @@ ACTION_SPLIT: str = "split"
 ACTION_BONUS: str = "bonus"
 ACTION_DIVIDEND: str = "dividend"
 ACTION_RIGHTS: str = "rights"
+ACTION_DISTRIBUTION: str = "distribution_in_kind"
 
 CORPORATE_ACTION_TYPES: tuple[str, ...] = (
     ACTION_SPLIT,
     ACTION_BONUS,
     ACTION_DIVIDEND,
     ACTION_RIGHTS,
+    ACTION_DISTRIBUTION,
 )

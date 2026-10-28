@@ -165,7 +165,9 @@ def ingest_corporate_actions(
     """Download, validate and persist corporate actions for the given stocks.
 
     Newly fetched actions are merged into the existing processed table and
-    deduplicated on ``(stock_id, event_date, action_type, announcement_date)``.
+    deduplicated on event identity and economic terms. ``overwrite=True``
+    replaces this provider's complete history for the fetched stocks; it is
+    required after a correction to classification rules.
     """
     if provider is None or storage is None:
         default_provider, default_storage = _defaults(config_path)
@@ -195,10 +197,23 @@ def ingest_corporate_actions(
     combined = pd.concat(fetched, ignore_index=True)
     existing = storage.load_corporate_actions()
     if not existing.empty:
+        fetched_ids = set(combined["stock_id"])
+        provider_rows = existing[
+            existing["stock_id"].isin(fetched_ids) & (existing["source"] == provider.name)
+        ]
+        if overwrite:
+            # The endpoint supplies full history. Refuse to replace a larger
+            # history with an unexpectedly truncated response.
+            counts = combined.groupby("stock_id").size()
+            old_counts = provider_rows.groupby("stock_id").size()
+            if any(counts.get(stock_id, 0) < count for stock_id, count in old_counts.items()):
+                raise ValueError("corporate actions refresh returned fewer rows than stored history")
+            existing = existing.drop(index=provider_rows.index)
+        elif (provider_rows["action_type"] == models.ACTION_BONUS).any() and (
+            combined["action_type"] == models.ACTION_DISTRIBUTION
+        ).any():
+            raise ValueError("old bonus classification detected; back up data and rerun with overwrite=True")
         combined = pd.concat([existing, combined], ignore_index=True)
-        # Two distinct distributions can share the same (stock, event date,
-        # action type, announcement date) with different cash/factor, so the
-        # economic terms are part of the identity key.
         combined = combined.drop_duplicates(
             subset=["stock_id", "event_date", "action_type", "announcement_date",
                     "cash_amount", "factor"],

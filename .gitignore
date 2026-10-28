@@ -42,6 +42,8 @@ reports/generated/
 experiments/backtest-*/
 experiments/backtests/
 experiments/validation_synthetic/
+experiments/validation_real/
+experiments/data_checks/
 
 # OS
 .DS_Store

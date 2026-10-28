@@ -10,7 +10,7 @@ from hk_quant.data.corporate_actions import (
     empty_corporate_actions,
     parse_dividend_scheme,
 )
-from hk_quant.data.models import ACTION_BONUS, ACTION_DIVIDEND
+from hk_quant.data.models import ACTION_BONUS, ACTION_DISTRIBUTION, ACTION_DIVIDEND
 from hk_quant.data.quality import DataQualityError, validate_corporate_actions
 
 
@@ -19,9 +19,20 @@ def test_parse_cash_dividend() -> None:
     assert parse_dividend_scheme("每股派港币4.5元") == (ACTION_DIVIDEND, 4.5, None)
 
 
-def test_parse_bonus_share() -> None:
+@pytest.mark.parametrize("scheme", [
+    "每1256股分派1股 China Literature 預留股份",
+    "每3900股分派1股 Tencent Music 美預託",
+    "每21股分派1股京東 A 類普通股",
+    "特殊说明:每10股分派1股美團 B 類普通股股份(相当于每股派18.13港元)",
+    "每10股分派1股",  # The recipient is not identified.
+])
+def test_distribution_of_other_or_unknown_issuer_never_adjusts_share_count(scheme) -> None:
+    assert parse_dividend_scheme(scheme) == (ACTION_DISTRIBUTION, None, None)
+
+
+def test_parse_verified_own_share_bonus() -> None:
     action_type, cash, factor = parse_dividend_scheme(
-        "特殊说明:每10股分派1股美团B类普通股股份(相当于每股派18.13港元)"
+        "每10股分派1股紅股"
     )
     assert action_type == ACTION_BONUS
     assert cash is None

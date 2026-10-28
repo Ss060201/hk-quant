@@ -5,15 +5,9 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from hk_quant.data.corporate_actions import (
-    canonicalize_corporate_actions,
-    parse_dividend_scheme,
-)
-from hk_quant.data.ingestion import (
-    ingest_corporate_actions,
-    ingest_daily_prices,
-    ingest_stock_master,
-)
+from hk_quant.data.ingestion import ingest_corporate_actions, ingest_daily_prices, ingest_stock_master
+from hk_quant.data.corporate_actions import canonicalize_corporate_actions, parse_dividend_scheme
+from hk_quant.data.models import ACTION_BONUS, ACTION_DISTRIBUTION
 from hk_quant.data.normalization import (
     canonicalize_daily_prices,
     canonicalize_stock_master,
@@ -174,6 +168,43 @@ def test_provider_symbol_completion_uses_canonical_stock_partition(tmp_path) -> 
     assert len(ingest_daily_prices(provider, storage, **args)) == 2
     assert storage.daily_prices_completed("fake", "00700", "2025-01-01", "2025-01-31")
     assert ingest_daily_prices(provider, storage, **args).empty
+
+
+def test_corporate_refresh_reclassifies_legacy_bonus_without_losing_same_day_cash(tmp_path) -> None:
+    class ActionsProvider(FakeProvider):
+        def fetch_raw_corporate_actions(self, stock_id):
+            return pd.DataFrame({
+                "symbol": ["00700"] * 3,
+                "event_date": ["2009-05-06", "2009-05-06", "2023-01-05"],
+                "announcement_date": ["2009-05-14", "2009-05-14", "2022-11-16"],
+                "scheme": ["每股派港币0.25元", "每股派港币0.10元", "每10股分派1股美團B類普通股"],
+            })
+
+        def normalize_corporate_actions(self, raw):
+            actions = raw["scheme"].map(parse_dividend_scheme)
+            return canonicalize_corporate_actions(pd.DataFrame({
+                "stock_id": raw["symbol"], "event_date": raw["event_date"],
+                "announcement_date": raw["announcement_date"],
+                "action_type": actions.map(lambda row: row[0]),
+                "cash_amount": actions.map(lambda row: row[1]),
+                "factor": actions.map(lambda row: row[2]),
+            }), self.name)
+
+    provider = ActionsProvider()
+    storage = DataStorage(tmp_path / "raw", tmp_path / "processed")
+    first = ingest_corporate_actions(provider, storage, stock_ids=["0700"])
+    assert len(first) == 3
+    assert len(ingest_corporate_actions(provider, storage, stock_ids=["0700"])) == 3
+    legacy = storage.load_corporate_actions()
+    legacy.loc[legacy["action_type"] == ACTION_DISTRIBUTION, "action_type"] = ACTION_BONUS
+    legacy.loc[legacy["action_type"] == ACTION_BONUS, "factor"] = 1.1
+    storage.save_corporate_actions(legacy)
+    with pytest.raises(ValueError, match="overwrite=True"):
+        ingest_corporate_actions(provider, storage, stock_ids=["0700"])
+    repaired = ingest_corporate_actions(provider, storage, stock_ids=["0700"], overwrite=True)
+    assert len(repaired) == 3
+    assert (repaired["action_type"] == ACTION_DISTRIBUTION).sum() == 1
+    assert sorted(repaired["cash_amount"].dropna()) == [0.1, 0.25]
 
 
 def test_ingest_corporate_actions_preserves_same_day_distributions(tmp_path) -> None:

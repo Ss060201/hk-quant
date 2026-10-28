@@ -3,6 +3,7 @@
 from hk_quant.data.models import (
     ACTION_BONUS,
     ACTION_DIVIDEND,
+    ACTION_DISTRIBUTION,
     ACTION_RIGHTS,
     ACTION_SPLIT,
     CALENDAR_COLUMNS,
@@ -41,6 +42,7 @@ from hk_quant.data.repository import DataRepository
 __all__ = [
     "ACTION_BONUS",
     "ACTION_DIVIDEND",
+    "ACTION_DISTRIBUTION",
     "ACTION_RIGHTS",
     "ACTION_SPLIT",
     "CALENDAR_COLUMNS",

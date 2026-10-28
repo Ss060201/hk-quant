@@ -8,7 +8,7 @@ import pandas as pd
 import pytest
 
 from hk_quant.data.adjustments import adjust_prices
-from hk_quant.data.models import ACTION_BONUS, ACTION_DIVIDEND, ACTION_SPLIT
+from hk_quant.data.models import ACTION_BONUS, ACTION_DISTRIBUTION, ACTION_DIVIDEND, ACTION_SPLIT
 
 
 def _prices() -> pd.DataFrame:
@@ -105,6 +105,16 @@ def test_bonus_adjusts_by_share_factor() -> None:
     adjusted = adjust_prices(_prices(), bonus)
     assert adjusted.loc[1, "close"] == pytest.approx(102.0 / 1.1)
     assert adjusted.loc[2, "close"] == pytest.approx(50.0)
+
+
+def test_external_share_distribution_and_legacy_akshare_bonus_never_adjust_prices() -> None:
+    distribution = _split().assign(action_type=ACTION_DISTRIBUTION, factor=None)
+    legacy = _split().assign(action_type=ACTION_BONUS, factor=1.1, source="akshare")
+    prices = _prices()
+    pd.testing.assert_frame_equal(
+        adjust_prices(prices, pd.concat([distribution, legacy], ignore_index=True), as_of_date="2020-09-02"),
+        prices,
+    )
 
 
 def test_as_of_prices_ignore_future_or_undated_corporate_actions() -> None:

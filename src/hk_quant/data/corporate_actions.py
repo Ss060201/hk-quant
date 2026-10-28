@@ -18,8 +18,10 @@ from hk_quant.data.normalization import normalize_stock_id
 #: Cash dividend pattern, e.g. "每股派港币5.3元" -> 5.3
 _CASH_DIVIDEND_RE = re.compile(r"每股派[^0-9]*([0-9]+(?:\.[0-9]+)?)\s*元")
 
-#: Stock distribution pattern, e.g. "每10股分派1股..." -> 1 new per 10 held
+#: A distribution of shares may be shares in another issuer, not a bonus
+#: issue of the stock being analysed. Never infer the recipient from a ratio.
 _BONUS_SHARE_RE = re.compile(r"每\s*([0-9]+(?:\.[0-9]+)?)\s*股[^0-9]*?分?派\s*([0-9]+(?:\.[0-9]+)?)\s*股")
+_OWN_SHARES_RE = re.compile(r"(?:紅股|红股)")
 
 
 def _utc_now() -> pd.Timestamp:
@@ -32,7 +34,8 @@ def parse_dividend_scheme(scheme: object) -> tuple[str, float | None, float | No
     Returns ``(action_type, cash_amount, factor)`` where:
 
     * plain cash dividend ("每股派港币5.3元") -> ``("dividend", 5.3, None)``
-    * stock distribution ("每10股分派1股...") -> ``("bonus", None, 1.1)``
+    * verified own-share bonus ("每10股分派1股紅股") -> ``("bonus", None, 1.1)``
+    * other or unidentified issuer shares -> ``("distribution_in_kind", None, None)``
     * unparseable scheme -> ``("dividend", None, None)`` (never guessed)
 
     ``factor`` is the multiplicative effect on share count.
@@ -43,8 +46,9 @@ def parse_dividend_scheme(scheme: object) -> tuple[str, float | None, float | No
     if bonus:
         base = float(bonus.group(1))
         issued = float(bonus.group(2))
-        if base > 0:
+        if base > 0 and _OWN_SHARES_RE.search(text):
             return (models.ACTION_BONUS, None, 1.0 + issued / base)
+        return (models.ACTION_DISTRIBUTION, None, None)
 
     cash = _CASH_DIVIDEND_RE.search(text)
     if cash:

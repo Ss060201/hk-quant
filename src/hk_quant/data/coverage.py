@@ -87,6 +87,17 @@ def report_data_coverage(repository: Any) -> dict[str, Any]:
         limitations.append("No corporate actions are available; split-adjusted price history cannot be verified.")
     else:
         limitations.append("Recorded corporate actions do not prove complete split, bonus or rights coverage.")
+        if (actions["action_type"] == "distribution_in_kind").any():
+            limitations.append(
+                "Shares distributed in another issuer do not increase this stock's share count; "
+                "their value and resulting total returns are not modeled."
+            )
+        if ((actions["action_type"] == "bonus") &
+            (actions["source"] == "akshare")).any():
+            limitations.append(
+                "Legacy AKShare bonus records are excluded from share-count price adjustments "
+                "until their recipient issuer is independently verified."
+            )
     if not actions.empty and "announcement_date" in actions and "event_date" in actions:
         announced = pd.to_datetime(actions["announcement_date"], errors="coerce")
         effective = pd.to_datetime(actions["event_date"], errors="coerce")

@@ -44,6 +44,14 @@ def adjust_prices(
         return result
 
     price_actions = actions[actions["action_type"].isin(PRICE_ADJUSTING_ACTIONS)].copy()
+    # Legacy AKShare rows called distributions of other issuers "bonus".
+    # Their canonical schema lacks the original scheme, so none can safely
+    # establish an increase in this issuer's shares until independently verified.
+    if "source" in price_actions:
+        price_actions = price_actions[
+            ~((price_actions["source"] == models.SOURCE_AKSHARE)
+              & (price_actions["action_type"] == models.ACTION_BONUS))
+        ]
     if price_actions.empty:
         return result
 
