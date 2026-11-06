@@ -46,14 +46,31 @@ def test_rejects_bad_ohlc(monkeypatch) -> None:
         provider.fetch_raw_daily_prices(["1299"], "2026-09-04", "2026-09-04")
 
 
-def test_rejects_incomplete_history(monkeypatch) -> None:
+def test_calendar_start_is_not_required_to_be_a_session(monkeypatch) -> None:
     provider = TencentHKProvider()
     monkeypatch.setattr(
         provider, "_paginate",
-        lambda sid, s, e: _bars([("2024-10-22", 1, 1, 1, 1, 1), ("2024-10-23", 1, 1, 1, 1, 1)]),
+        lambda sid, s, e: _bars([("2020-01-02", 1, 1, 1, 1, 1)]),
     )
-    with pytest.raises(ValueError, match="incomplete"):
-        provider.fetch_raw_daily_prices(["0700"], "2020-01-01", "2026-11-03")
+    result = provider.fetch_raw_daily_prices(["0700"], "2020-01-01", "2020-01-02")
+    assert len(result) == 1
+
+
+def test_zero_volume_placeholder_bars_are_dropped(monkeypatch) -> None:
+    """Tencent emits flat zero-volume bars for market-closure weekdays."""
+    provider = TencentHKProvider()
+    monkeypatch.setattr(
+        provider, "_paginate",
+        lambda sid, s, e: _bars([
+            ("2023-08-31", 331.0, 325.0, 331.8, 322.0, 49737237),
+            ("2023-09-01", 325.0, 325.0, 325.0, 325.0, 0),  # typhoon closure placeholder
+            ("2023-09-04", 330.0, 333.4, 334.6, 328.4, 30748869),
+        ]),
+    )
+    raw = provider.fetch_raw_daily_prices(["0700"], "2023-08-31", "2023-09-04")
+    dates = pd.to_datetime(raw["date"]).dt.date.astype(str).tolist()
+    assert "2023-09-01" not in dates
+    assert len(raw) == 2
 
 
 def test_normalize_is_raw_not_adjusted(monkeypatch) -> None:
@@ -67,6 +84,7 @@ def test_normalize_is_raw_not_adjusted(monkeypatch) -> None:
 
 
 def test_paginate_walks_backward(monkeypatch) -> None:
+    monkeypatch.setattr("hk_quant.data.adapters.tencent._PAGE_SIZE", 2)
     provider = TencentHKProvider()
     calls: list[tuple[str, str]] = []
 

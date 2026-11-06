@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import date
+import math
 from typing import TYPE_CHECKING, Iterable
 
 import pandas as pd
@@ -27,7 +28,7 @@ def _require_columns(df: pd.DataFrame, required: list[str], context: str) -> Non
         raise DataQualityError(f"{context}: missing columns {missing}")
 
 
-def validate_daily_prices(df: pd.DataFrame) -> pd.DataFrame:
+def validate_daily_prices(df: pd.DataFrame, *, required_fields: Iterable[str] | None = None) -> pd.DataFrame:
     """Validate a canonical daily prices DataFrame.
 
     Raises :class:`DataQualityError` on the first problem found and returns
@@ -45,11 +46,21 @@ def validate_daily_prices(df: pd.DataFrame) -> pd.DataFrame:
     if df["trade_date"].isna().any():
         raise DataQualityError("daily prices: trade_date contains null values")
 
-    for col in _NUMERIC_COLUMNS:
+    required_numeric = set(_NUMERIC_COLUMNS if required_fields is None else required_fields)
+    required_numeric |= {"open", "high", "low", "close", "volume"}
+    for col in (*_NUMERIC_COLUMNS, "turnover_rate"):
+        if col not in df.columns:
+            if col in required_numeric:
+                raise DataQualityError(f"daily prices: missing required {col}")
+            continue
         if not pd.api.types.is_numeric_dtype(df[col]):
             raise DataQualityError(f"daily prices: column {col!r} is not numeric")
-        if df[col].isna().any():
+        if col in required_numeric and df[col].isna().any():
             raise DataQualityError(f"daily prices: column {col!r} contains null values")
+        if not df[col].dropna().map(lambda x: math.isfinite(float(x))).all():
+            raise DataQualityError(f"daily prices: column {col!r} is not finite")
+    if (df[["open", "high", "low", "close"]] <= 0).any().any():
+        raise DataQualityError("daily prices: prices must be positive")
 
     # ``turnover_rate`` is optional (unavailable from some providers).
     if "turnover_rate" in df.columns:

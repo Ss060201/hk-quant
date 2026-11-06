@@ -1,5 +1,10 @@
 # 第二資料來源：Tencent Finance（備用／核對）
 
+> 新統一入口已接通備援與獨立覆蓋檢查，見 [統一流程](unified-research-workflow.md)。
+> 此文件下列實測是 2026-11-02 的歷史紀錄。1299 的 Tencent 數值只是替代來源觀測，
+> 尚無獨立歷史佐證，不應據此直接宣稱已核實正確，也未證明使用者本機資料已修補。
+> 新版不再要求起始自然日一定有價格，完整性由交易日曆與上市範圍驗收。
+
 研究 Vibe-Trading（HKUDS/Vibe-Trading，MIT License）的港股來源後，實作一個獨立、可選用的
 Tencent 港股日線 adapter，解決 Sina 更新延遲，並核對 1299 的異常日。
 
