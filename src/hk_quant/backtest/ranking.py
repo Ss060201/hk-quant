@@ -22,6 +22,7 @@ from typing import Any, Sequence
 
 import pandas as pd
 
+from hk_quant.backtest.actions import ActionLedger
 from hk_quant.backtest.execution import fill_order, raw_open_or_rejection
 from hk_quant.backtest.models import BacktestConfig
 from hk_quant.backtest.performance import compute_performance
@@ -62,6 +63,7 @@ def run_ranking_backtest(
     rebalance_frequency: int = 20,
     config: BacktestConfig | None = None,
     output_dir: str | Path | None = None,
+    action_policy: str = "strict",
 ) -> RankingBacktestResult:
     """Run a ranking strategy over an explicit cohort.
 
@@ -107,6 +109,7 @@ def run_ranking_backtest(
     ex_dividends: dict[tuple[str, date], float] = defaultdict(float)
     actions_getter = getattr(repository, "get_corporate_actions", None)
     unmodeled_actions = False
+    actions = pd.DataFrame()
     if callable(actions_getter):
         actions = actions_getter(stock_ids=ids)
         if not actions.empty and "event_date" in actions:
@@ -127,8 +130,15 @@ def run_ranking_backtest(
                     )
 
     version_getter = getattr(repository, "get_data_version", None)
+    if not actions.empty and "recipient_stock_id" in actions:
+        recipients = sorted(set(actions["recipient_stock_id"].dropna().astype(str)) - set(ids))
+        if recipients:
+            extra = repository.get_daily_prices(end_date=end.isoformat(), stock_ids=recipients)
+            for row in extra.to_dict("records"):
+                day_rows[_date(row["trade_date"])][str(row["stock_id"])] = row
     data_version = str(version_getter()) if callable(version_getter) else None
 
+    ledger = ActionLedger(actions, policy=action_policy)
     portfolio = Portfolio(config.initial_capital)
     pending: dict[date, list[dict]] = defaultdict(list)
     orders: list[dict] = []
@@ -144,7 +154,7 @@ def run_ranking_backtest(
         "Calendar provenance is not verified as official HKEX calendar.",
         "Ranking uses only data <= rebalance date; fills use next-session raw open.",
     ]
-    if unmodeled_actions:
+    if unmodeled_actions and action_policy == "legacy_exploratory":
         warnings.append(
             "distribution_in_kind occurs in the sample and is NOT valued; total return is exploratory."
         )
@@ -157,25 +167,31 @@ def run_ranking_backtest(
         day_str = day.isoformat()
         row_map = day_rows.get(day, {})
 
-        # 1. Credit cash dividends on the ex-date for shares held entering today.
-        for stock_id, position in sorted(portfolio.positions.items()):
-            cash_per_share = ex_dividends.get((stock_id, day))
-            if cash_per_share and position.quantity > 0:
-                amount = position.quantity * cash_per_share
-                portfolio.cash += amount
-                dividends.append(
-                    {
-                        "event_date": day_str,
-                        "stock_id": stock_id,
-                        "shares": position.quantity,
-                        "cash_per_share": cash_per_share,
-                        "cash_flow": amount,
-                    }
-                )
+        # Entitlements are assets on ex-date; only paid cash finances orders.
+        dividend_paid = ledger.apply(day, portfolio, row_map, last_marks)
+        dividends = ledger.records
 
         # 2. Execute due orders: sells release cash first, then buys.
         due = pending.pop(day, [])
         executed_today: list[dict] = []
+        # All target quantities use the same pre-trade opening equity.
+        open_equity = portfolio.cash + ledger.value
+        for stock_id, position in portfolio.positions.items():
+            raw_open, _ = raw_open_or_rejection(row_map.get(stock_id))
+            known_mark = raw_open if raw_open is not None else last_marks.get(stock_id, position.cost_basis)
+            open_equity += position.quantity * known_mark
+        targets = {o["stock_id"]: o["target_weight"] for o in due if o["side"] == "BUY"}
+        for stock_id, weight in targets.items():
+            position = portfolio.positions.get(stock_id)
+            raw_open, error = raw_open_or_rejection(row_map.get(stock_id))
+            if position and not error:
+                target_quantity = int(open_equity * weight / raw_open)
+                excess = position.quantity - target_quantity
+                if excess > 0:
+                    trim = {"order_id": f"sim-{len(orders)+1:06d}", "signal_date":due[0]["signal_date"],
+                            "execution_date":day_str,"stock_id":stock_id,"side":"SELL",
+                            "target_weight":weight,"quantity":excess,"status":"PENDING","reason":None}
+                    due.append(trim); orders.append(trim)
         for order in sorted((o for o in due if o["side"] == "SELL"), key=lambda o: o["stock_id"]):
             raw_open, error = raw_open_or_rejection(row_map.get(order["stock_id"]))
             if error:
@@ -183,16 +199,9 @@ def run_ranking_backtest(
                 continue
             trade = fill_order(order, raw_open, portfolio, config)
             if trade:
-                executed_today.append(trade)
-                trades.append(trade)
-
+                executed_today.append(trade); trades.append(trade)
         buys = sorted((o for o in due if o["side"] == "BUY"), key=lambda o: o["stock_id"])
-        weights = equal_weight_targets(portfolio.positions, (o["stock_id"] for o in buys))
-        open_equity = portfolio.cash
-        for stock_id, position in portfolio.positions.items():
-            raw_open, _ = raw_open_or_rejection(row_map.get(stock_id))
-            known_mark = raw_open if raw_open is not None else last_marks.get(stock_id, position.cost_basis)
-            open_equity += position.quantity * known_mark
+        weights = targets
         for order in buys:
             stock_id = order["stock_id"]
             order["target_weight"] = weights[stock_id]
@@ -241,7 +250,7 @@ def run_ranking_backtest(
                     "unrealized_pnl": pnl,
                 }
             )
-        equity = portfolio.cash + positions_value
+        equity = portfolio.cash + positions_value + ledger.value
         if portfolio.cash < -1e-8:
             raise AssertionError("portfolio cash became negative")
         day_turnover = sum(t["notional"] for t in executed_today) / previous_equity
@@ -253,7 +262,8 @@ def run_ranking_backtest(
                 "equity": equity,
                 "realized_pnl": portfolio.realized_pnl,
                 "unrealized_pnl": unrealized_pnl,
-                "dividend_cash": sum(d["cash_flow"] for d in dividends if d["event_date"] == day_str),
+                "dividend_cash": dividend_paid,
+                "dividend_receivable": ledger.value,
                 "daily_return": equity / previous_equity - 1.0,
                 "turnover": day_turnover,
                 "stale_position_count": stale,
@@ -308,7 +318,7 @@ def run_ranking_backtest(
                         "execution_date": next_day,
                         "stock_id": stock_id,
                         "side": "BUY",
-                        "target_weight": None,
+                        "target_weight": targets[stock_id],
                         "quantity": 0,
                         "status": "PENDING" if next_day else "REJECTED",
                         "reason": None if next_day else "NO_NEXT_SESSION_WITHIN_RANGE",
@@ -343,7 +353,7 @@ def run_ranking_backtest(
         ],
     )
     dividends_frame = pd.DataFrame(
-        dividends, columns=["event_date", "stock_id", "shares", "cash_per_share", "cash_flow"]
+        dividends, columns=["event_date", "stock_id", "shares", "cash_per_share", "cash_flow", "payment_date"]
     )
     decisions_frame = pd.DataFrame(
         decisions,
@@ -361,7 +371,7 @@ def run_ranking_backtest(
     metadata = {
         "strategy_id": "ranking_top_n",
         "strategy_version": "1.0.0",
-        "strategy_hash": "ranking-momentum-top-n (in-memory, no immutable YAML hash)",
+        "strategy_hash": None,  # The workflow supplies the immutable specification hash.
         "data_version": data_version,
         "start_date": start.isoformat(),
         "end_date": end.isoformat(),
@@ -373,11 +383,12 @@ def run_ranking_backtest(
         "status": "EXPLORATORY",
         "execution": "T close score/rank, earliest T+1 trading-session raw Open",
         "valuation": "raw Close; stale last known mark if missing",
-        "dividends": "cash dividends credited on ex-date for shares held entering that day",
+        "dividends": "receivable on ex-date, spendable on payment date",
+        "action_policy": action_policy,
         "assumptions": {
-            "construction": "equal-weight top-N targets; dropped names sold, targets topped up",
+            "construction": "equal-weight top-N; trim excess positions before buying",
             "fill": "whole shares, all-or-nothing order; no market partial fill",
-            "corporate_actions": "cash dividends credited; distribution_in_kind not valued",
+            "corporate_actions": "verified events modeled; unsupported held events block unless explicit legacy mode",
             "currency": "single currency; no FX conversion",
             **config.to_dict(),
         },

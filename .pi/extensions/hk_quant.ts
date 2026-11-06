@@ -48,7 +48,7 @@ async function invoke(tool: string, args: unknown, signal: AbortSignal): Promise
       else resolve(result);
     };
     const abort = () => { child.kill(); done(new Error("Research tool cancelled")); };
-    const timeout = setTimeout(() => { child.kill(); done(new Error("Research tool timed out after 120 seconds")); }, 120_000);
+    const timeout = setTimeout(() => { child.kill(); done(new Error("Research tool exceeded its time budget")); }, (tool.endsWith("workflow") ? 1_200_000 : 120_000));
     signal.addEventListener("abort", abort, { once: true });
     child.stdout.setEncoding("utf8");
     child.stdout.on("data", (chunk: string) => {
@@ -82,6 +82,26 @@ export default function (pi: ExtensionAPI) {
       },
     }));
   }
+  const workflowSpec = Type.Object({
+    name: id,
+    stocks: Type.Array(Type.String({pattern:"^[0-9]{1,5}$"}), {minItems:1,maxItems:7}),
+    start: date, end: date,
+    score: Type.String({minLength:1,maxLength:100}),
+    top_n: Type.Integer({minimum:1,maximum:7}),
+    rebalance: Type.Integer({minimum:1,maximum:756}),
+    filters: Type.Optional(Type.Array(Type.Object({field:Type.String(),op:Type.Union([Type.Literal(">"),Type.Literal(">="),Type.Literal("<"),Type.Literal("<="),Type.Literal("=="),Type.Literal("!=")]),value:Type.Number()},{additionalProperties:false}),{maxItems:20})),
+    ascending: Type.Optional(Type.Boolean()),
+    action_policy: Type.Optional(Type.Union([Type.Literal("strict"),Type.Literal("price_only")])),
+    commission_rate: Type.Optional(Type.Number({minimum:0,exclusiveMaximum:1})),
+    slippage_rate: Type.Optional(Type.Number({minimum:0,exclusiveMaximum:1})),
+    initial_capital: Type.Optional(Type.Number({exclusiveMinimum:0})),
+    warmup_days: Type.Optional(Type.Integer({minimum:1,maximum:3000})),
+    universe: Type.Optional(Type.Union([Type.Literal("explicit"),Type.Literal("historical")])),
+  },{additionalProperties:false});
+  const workflowArgs = Type.Object({spec:workflowSpec,offline:Type.Optional(Type.Boolean()),refresh:Type.Optional(Type.Boolean())},{additionalProperties:false});
+  register("plan_workflow", "Validate the user's explicit strategy and list required fields; no download or backtest.",workflowArgs);
+  register("prepare_workflow", "Prepare required data with retries, coverage checks and conflict records; no trading.",workflowArgs);
+  register("run_workflow", "Run an authorized strategy on a frozen snapshot with benchmark and exposure tracking; historical simulation only.",workflowArgs);
   register("get_data_coverage", "Read observed data coverage, missing fields, and content version before requesting research.", Type.Object({}, { additionalProperties: false }));
   register("get_market_data", "Read a bounded snapshot of canonical historical prices. amount is not turnover_rate.", Type.Object({ stock_ids: stockIds, start_date: date, end_date: date, limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 500 })) }, { additionalProperties: false }));
   register("plan_research", "Parse a turnover-rate research question conservatively. A NEEDS_INPUT response never runs the study.", Type.Object({ question: Type.String({ minLength: 1, maxLength: 2000 }), start_date: Type.Optional(date), end_date: Type.Optional(date), thresholds: Type.Optional(Type.Array(Type.Number(), { maxItems: 40 })), forward_periods: Type.Optional(Type.Array(Type.Integer({ minimum: 1, maximum: 180 }), { maxItems: 40 })) }, { additionalProperties: false }));

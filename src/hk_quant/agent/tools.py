@@ -192,6 +192,9 @@ class ResearchTools:
             "run_backtest": self.run_backtest,
             "run_validation": self.run_validation,
             "run_risk_analysis": self.run_risk_analysis,
+            "plan_workflow": self.plan_workflow,
+            "prepare_workflow": self.prepare_workflow,
+            "run_workflow": self.run_workflow,
         }
         if tool not in handlers:
             return {"ok": False, "tool": tool, "error": {"code": "UNKNOWN_TOOL", "message": "unknown or disabled tool"}}
@@ -213,6 +216,36 @@ class ResearchTools:
         if not hasattr(self.repository, "get_data_coverage"):
             raise ToolFault("DATA_UNAVAILABLE", "data coverage report has not been configured")
         return self.repository.get_data_coverage()
+
+    def _workflow_spec(self, args):
+        from hk_quant.workflow.spec import ResearchSpec
+        data = _keys(args, {"spec", "offline", "refresh"}, required={"spec"})
+        for key in ("offline", "refresh"):
+            if key in data and not isinstance(data[key], bool):
+                raise ToolFault("INVALID_INPUT", f"{key} must be boolean")
+        try:
+            spec = ResearchSpec.from_dict(data["spec"])
+        except (ValueError, TypeError, KeyError) as exc:
+            raise ToolFault("INVALID_INPUT", str(exc)) from exc
+        if len(spec.stocks) > 7:
+            raise ToolFault("BUDGET_EXCEEDED", "Agent workflow limit is seven stocks; use the CLI for explicit larger batches")
+        return spec, data
+
+    def plan_workflow(self, args):
+        spec, _ = self._workflow_spec(args)
+        return {"status": "PLANNED", "spec": spec.to_dict(), "strategy_hash": spec.digest,
+                "required_price_fields": spec.required_prices, "financial_metrics": spec.metrics}
+
+    def prepare_workflow(self, args):
+        from hk_quant.workflow.data import prepare_data
+        spec, data = self._workflow_spec(args)
+        return prepare_data(spec, self.repository.processed_root.parent, refresh=data.get("refresh", False))
+
+    def run_workflow(self, args):
+        from hk_quant.workflow.cli import execute
+        spec, data = self._workflow_spec(args)
+        return execute(spec, self.repository.processed_root.parent, self.research_root / "workflows",
+                       offline=data.get("offline", False), refresh=data.get("refresh", False))
 
     def get_market_data(self, args: dict[str, Any]) -> dict[str, Any]:
         data = _keys(args, {"stock_ids", "start_date", "end_date", "limit"}, required={"stock_ids", "start_date", "end_date"})

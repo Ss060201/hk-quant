@@ -1,0 +1,12 @@
+{
+  "name": "example_only_price_momentum",
+  "stocks": ["0700", "0005", "0941", "0001", "0388", "1810", "9988"],
+  "start": "2020-01-02",
+  "end": "2025-12-31",
+  "score": "momentum_20",
+  "top_n": 2,
+  "rebalance": 20,
+  "filters": [],
+  "action_policy": "strict",
+  "universe": "explicit"
+}
