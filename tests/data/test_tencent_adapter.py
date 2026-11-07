@@ -56,8 +56,8 @@ def test_calendar_start_is_not_required_to_be_a_session(monkeypatch) -> None:
     assert len(result) == 1
 
 
-def test_zero_volume_placeholder_bars_are_dropped(monkeypatch) -> None:
-    """Tencent emits flat zero-volume bars for market-closure weekdays."""
+def test_zero_volume_observations_are_preserved(monkeypatch) -> None:
+    """The adapter cannot infer market closures from volume alone."""
     provider = TencentHKProvider()
     monkeypatch.setattr(
         provider, "_paginate",
@@ -69,8 +69,8 @@ def test_zero_volume_placeholder_bars_are_dropped(monkeypatch) -> None:
     )
     raw = provider.fetch_raw_daily_prices(["0700"], "2023-08-31", "2023-09-04")
     dates = pd.to_datetime(raw["date"]).dt.date.astype(str).tolist()
-    assert "2023-09-01" not in dates
-    assert len(raw) == 2
+    assert "2023-09-01" in dates
+    assert len(raw) == 3
 
 
 def test_normalize_is_raw_not_adjusted(monkeypatch) -> None:

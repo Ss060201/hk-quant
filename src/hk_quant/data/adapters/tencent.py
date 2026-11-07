@@ -132,10 +132,10 @@ class TencentHKProvider:
             frame["date"] = pd.to_datetime(frame["date"], errors="coerce")
             frame = frame[(frame["date"] >= pd.Timestamp(start)) & (frame["date"] <= pd.Timestamp(end))]
 
-            # Tencent returns flat, zero-volume placeholder bars for weekdays the
-            # market was closed (e.g. 2023-09-01 / 2023-09-08 typhoon/rainstorm
-            # closures). They are not sessions and must not fill calendar gaps.
-            frame = frame[pd.to_numeric(frame["volume"], errors="coerce") > 0]
+            # Keep zero-volume observations for session/tradability checks.
+            # Volume alone cannot distinguish a closure from a stock suspension.
+            # Validate before any filtering: invalid numbers must not disappear.
+            self._validate_ohlc(frame)
 
             # Calendar dates need not be sessions; completeness is assessed by
             # the workflow against an independent calendar, never date equality.

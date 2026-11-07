@@ -35,6 +35,7 @@ experiments/registry.sqlite3
 experiments/artifacts/
 reports/generated/
 data/preparations/
+data/quality/
 data/.workflow.lock
 experiments/workflows/
 .deps/

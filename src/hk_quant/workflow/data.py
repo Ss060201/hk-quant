@@ -19,6 +19,7 @@ from hk_quant.data.adapters.akshare import AKShareProvider
 from hk_quant.data.adapters.tencent import TencentHKProvider
 from hk_quant.data.adapters.eastmoney import EastmoneyHKProvider, EastmoneyHKFinancials
 from hk_quant.workflow.spec import ResearchSpec
+from hk_quant.workflow.conflicts import persist_conflicts, relevant_conflicts, unresolved_conflicts, ConflictHistoryError
 
 OHLCV = ["open", "high", "low", "close", "volume"]
 
@@ -64,6 +65,8 @@ def merge_prices(existing, incoming):
                     differences.append(c)
             if differences:
                 conflicts.append({"stock_id":key[0], "date":str(key[1]), "fields":differences,
+                                  "stored_values":{c:float(old[c]) for c in differences},
+                                  "incoming_values":{c:float(row[c]) for c in differences},
                                   "stored_source":old.get("source"), "incoming_source":row.get("source")})
                 continue
             provenance = json.loads(old.get("field_sources") or "{}")
@@ -105,8 +108,16 @@ class DataRouter:
                     if not dates.between(pd.Timestamp(start),pd.Timestamp(end)).all():
                         raise ValueError("OUT_OF_RANGE_RESPONSE")
                     merged, issues = merge_prices(merged,normalized)
+                    if issues:
+                        # Persist before returning or saving merged prices, including
+                        # when a later provider or disk write fails.
+                        if Path(run_dir).parent.name != "preparations":
+                            raise ConflictHistoryError("conflicts require a data/preparations/run directory")
+                        persist_conflicts(Path(run_dir).parent.parent, issues)
                     conflicts.extend(issues)
                     break
+                except ConflictHistoryError:
+                    raise
                 except Exception as exc:
                     failures.append({"stock_id":stock,"source":provider.name,"attempt":attempt+1,
                                      "error":f"{type(exc).__name__}: {exc}"[:400]})
@@ -163,6 +174,7 @@ def _prepare(spec, root, router, refresh, fetch_financials, storage_factory, act
     run_dir.mkdir(parents=True,exist_ok=False)
     start = (pd.Timestamp(spec.start)-timedelta(days=spec.warmup_days)).date().isoformat()
     blockers, failures, conflicts, rows = [], [], [], []
+    conflicts = relevant_conflicts(spec, unresolved_conflicts(root, persist_conflicts(root)))
     try:
         sessions = expected_sessions(root,spec.start,spec.end)
     except ValueError as exc:
@@ -217,6 +229,7 @@ def _prepare(spec, root, router, refresh, fetch_financials, storage_factory, act
                      "last":str(dates.max().date()),"missing_dates":[str(x) for x in missing],"nulls":nulls})
         if sample.empty or missing or any(nulls.values()):
             blockers.append(f"{stock}: required prices/fields missing; see stocks report")
+    conflicts = relevant_conflicts(spec, unresolved_conflicts(root, persist_conflicts(root, conflicts)))
     if conflicts:
         blockers.append("SOURCE_CONFLICT: existing values retained; unresolved conflicts need a sourced correction")
 

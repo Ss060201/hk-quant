@@ -17,6 +17,10 @@ def read_reference(root,kind,default):
 
 
 def build_repository(spec,root):
+    from hk_quant.workflow.conflicts import conflict_blockers
+    blockers = conflict_blockers(spec,root)
+    if blockers:
+        raise ValueError("; ".join(blockers))
     from hk_quant.data.storage import DataStorage
     from hk_quant.workflow.data import expected_sessions
     from hk_quant.workflow.research import FrozenRepository
@@ -54,7 +58,7 @@ def execute(spec, root="data", output="experiments/workflows", *, offline=False,
 
 def main(argv=None):
     parser=argparse.ArgumentParser(description="Prepare and run an explicit HK research specification")
-    parser.add_argument("command",choices=["plan","prepare","run","update","status","replay","import-reference","compare","capture-quotes"])
+    parser.add_argument("command",choices=["plan","prepare","run","update","status","replay","import-reference","compare","capture-quotes","resolve-conflict"])
     parser.add_argument("--spec",type=Path)
     parser.add_argument("--data-root",type=Path,default=Path("data"))
     parser.add_argument("--output",type=Path,default=Path("experiments/workflows"))
@@ -65,7 +69,13 @@ def main(argv=None):
     parser.add_argument("--stocks",nargs="+")
     args=parser.parse_args(argv)
     try:
-        if args.command=="capture-quotes":
+        if args.command=="resolve-conflict":
+            from hk_quant.workflow.conflicts import resolve_conflict
+            from hk_quant.workflow.data import writer_lock
+            if not args.file: raise ValueError("--file reviewed resolution JSON required")
+            with writer_lock(args.data_root):
+                result=resolve_conflict(args.data_root,args.file)
+        elif args.command=="capture-quotes":
             from hk_quant.data.adapters.aastocks import capture_samples
             from hk_quant.data.storage import DataStorage
             import uuid
