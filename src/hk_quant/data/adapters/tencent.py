@@ -71,7 +71,10 @@ class TencentHKProvider:
             raise RuntimeError(f"tencent error reply: code={payload.get('code')}")
         node = (payload.get("data") or {}).get(code, {})
         bars = node.get("day") or []
-        if not bars:
+        if not bars and "day" not in node:
+            # An empty successful window is legitimate, a missing raw series is not.
+            if not node:
+                return []
             raise ValueError("tencent raw 'day' series unavailable for this window")
         return bars
 
@@ -81,11 +84,23 @@ class TencentHKProvider:
         current_end = end_date
         for _ in range(_MAX_PAGES):
             bars = self._request(stock_id, start_date, current_end)
+            if not bars:
+                break
+            bars = sorted(bars, key=lambda bar: bar[0])
+            if bars[-1][0] > current_end or bars[0][0] < start_date:
+                raise ValueError("tencent returned bars outside requested window")
             collected.extend(bars)
             first_date = bars[0][0]
             if first_date <= start_date:
                 break
-            current_end = (pd.Timestamp(first_date) - timedelta(days=1)).strftime("%Y-%m-%d")
+            next_end = (pd.Timestamp(first_date) - timedelta(days=1)).strftime("%Y-%m-%d")
+            if next_end >= current_end:
+                raise ValueError("tencent pagination made no progress")
+            if len(bars) < _PAGE_SIZE:
+                break
+            current_end = next_end
+        else:
+            raise ValueError("tencent history incomplete: pagination budget exhausted")
         return collected
 
     def fetch_raw_daily_prices(
@@ -101,6 +116,8 @@ class TencentHKProvider:
         """
         start = str(start_date) if start_date else "2000-01-01"
         end = str(end_date) if end_date else date.today().strftime("%Y-%m-%d")
+        if pd.Timestamp(start) > pd.Timestamp(end):
+            raise ValueError("start_date must not exceed end_date")
 
         frames: list[pd.DataFrame] = []
         for symbol in stock_ids:
@@ -115,13 +132,17 @@ class TencentHKProvider:
             frame["date"] = pd.to_datetime(frame["date"], errors="coerce")
             frame = frame[(frame["date"] >= pd.Timestamp(start)) & (frame["date"] <= pd.Timestamp(end))]
 
-            earliest = frame["date"].min()
-            if earliest > pd.Timestamp(start):
-                raise ValueError(
-                    f"tencent history incomplete for {stock_id}: requested {start}, "
-                    f"earliest returned {earliest.date()} (source caps at {_PAGE_SIZE} bars/page)"
-                )
+            # Keep zero-volume observations for session/tradability checks.
+            # Volume alone cannot distinguish a closure from a stock suspension.
+            # Validate before any filtering: invalid numbers must not disappear.
+            self._validate_ohlc(frame)
 
+            # Calendar dates need not be sessions; completeness is assessed by
+            # the workflow against an independent calendar, never date equality.
+            if frame.empty:
+                continue
+            if frame.duplicated("date").any():
+                raise ValueError("tencent returned duplicate dates")
             self._validate_ohlc(frame)
             frame["symbol"] = stock_id.zfill(5)
             frame["fetched_at"] = pd.Timestamp.now("UTC")
@@ -134,6 +155,12 @@ class TencentHKProvider:
     def _validate_ohlc(self, frame: pd.DataFrame) -> None:
         for col in ("open", "close", "high", "low", "volume"):
             frame[col] = pd.to_numeric(frame[col], errors="coerce")
+            if not frame[col].map(lambda x: pd.notna(x) and math.isfinite(float(x))).all():
+                raise ValueError(f"tencent invalid or non-finite {col}")
+            if (frame[col] < 0).any() or (col != "volume" and (frame[col] == 0).any()):
+                raise ValueError(f"tencent invalid {col}")
+        if pd.to_datetime(frame["date"], errors="coerce").isna().any():
+            raise ValueError("tencent invalid date")
         bad = (
             (frame["high"] + frame["high"].abs() * _OHLC_TOLERANCE < frame["low"])
             | (frame["high"] + frame["high"].abs() * _OHLC_TOLERANCE < frame["open"])

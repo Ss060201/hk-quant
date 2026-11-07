@@ -35,6 +35,7 @@ def _action(stock_id: str, event_date: str, cash: float) -> dict:
         "announcement_date": pd.Timestamp(event_date) - pd.Timedelta(days=2),
         "action_type": "dividend", "factor": None, "cash_amount": cash,
         "source": "synthetic", "ingested_at": pd.Timestamp.now("UTC"),
+        "verified": True, "currency": "HKD", "payment_date": event_date,
     }
 
 

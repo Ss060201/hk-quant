@@ -16,7 +16,9 @@ def main(argv: list[str] | None = None) -> int:
     """
     if argv is None:
         argv = sys.argv[1:]
-    # Future subcommands (data, research, backtest, ...) will be dispatched here.
+    if argv and argv[0] == "workflow":
+        from hk_quant.workflow.cli import main as workflow_main
+        return workflow_main(argv[1:])
     if argv:
         print(f"Unknown command(s): {' '.join(argv)}", file=sys.stderr)
         return 2

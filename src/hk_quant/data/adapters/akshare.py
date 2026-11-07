@@ -9,8 +9,8 @@ from __future__ import annotations
 
 from typing import Sequence
 
-import akshare as ak
 import pandas as pd
+from hk_quant.data.adapters.calls import call_akshare
 
 from hk_quant.data import models
 from hk_quant.data.corporate_actions import (
@@ -78,7 +78,10 @@ class AKShareProvider:
 
     def fetch_raw_stock_master(self) -> pd.DataFrame:
         """Return the raw AKShare ``stock_hk_spot`` response."""
-        raw = ak.stock_hk_spot()
+        # ``stock_hk_spot`` paginates the entire HK spot list (tens of pages),
+        # which legitimately exceeds the default single-request budget used for
+        # per-stock daily/dividend calls. Allow a longer budget here.
+        raw = call_akshare("stock_hk_spot", timeout=180)
         if raw is None or raw.empty:
             raise RuntimeError("AKShare returned an empty stock master")
         return raw.copy()
@@ -117,7 +120,7 @@ class AKShareProvider:
         frames: list[pd.DataFrame] = []
         for stock_id in stock_ids:
             symbol = _provider_symbol(stock_id)
-            raw = ak.stock_hk_daily(symbol=symbol, adjust="")
+            raw = call_akshare("stock_hk_daily", symbol=symbol, adjust="")
             if raw is None or raw.empty:
                 continue
             raw = raw.copy()
@@ -178,7 +181,7 @@ class AKShareProvider:
         split/rights feed.
         """
         symbol = _provider_symbol(stock_id)
-        raw = ak.stock_hk_dividend_payout_em(symbol=symbol)
+        raw = call_akshare("stock_hk_dividend_payout_em", symbol=symbol)
         if raw is None or raw.empty:
             return pd.DataFrame()
         raw = raw.copy()

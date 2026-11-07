@@ -13,7 +13,6 @@ from datetime import date
 from pathlib import Path
 from typing import Sequence, Union
 
-import duckdb
 import pandas as pd
 
 from hk_quant.data import models
@@ -73,6 +72,7 @@ class DataRepository:
             sql += " WHERE " + " AND ".join(conditions)
         sql += " ORDER BY stock_id, trade_date"
 
+        import duckdb
         con = duckdb.connect()
         try:
             return con.execute(sql, params).df()
@@ -133,6 +133,7 @@ class DataRepository:
         if not path.exists():
             return pd.DataFrame(columns=list(models.STOCK_MASTER_COLUMNS))
 
+        import duckdb
         con = duckdb.connect()
         try:
             sql = f"SELECT * FROM read_parquet({_parquet_path_literal(path)}) ORDER BY stock_id"

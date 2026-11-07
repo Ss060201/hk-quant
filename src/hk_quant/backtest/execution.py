@@ -50,7 +50,8 @@ def fill_order(
         if position is None:
             order.update(status="REJECTED", reason="POSITION_NOT_HELD")
             return None
-        quantity = position.quantity
+        requested = order.get("quantity", 0)
+        quantity = min(position.quantity, requested) if requested > 0 else position.quantity
     elif side == "BUY":
         if target_value is None or target_value <= 0:
             order.update(status="REJECTED", reason="INVALID_TARGET_VALUE")

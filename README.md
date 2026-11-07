@@ -1,5 +1,13 @@
 # HK Quantitative Research Platform
 
+## 統一研究入口（新增）
+
+使用 `hk-quant workflow plan|prepare|status|run|replay` 串接策略需求、資料準備及可重現回測。
+見 [完整操作與驗收界線](docs/unified-research-workflow.md) 和
+[資料來源能力／缺口](docs/data-source-capabilities.md)。
+接口實作不代表真實歷史資料已補齊；缺公布時間或公司行動證據時會回報 BLOCKED。
+以下 Phase 記錄保留為歷史，最新統一流程以以上文件為準。
+
 一個 **AI-native 香港股票量化研究平台**。
 
 ## 1. 項目是什麼
